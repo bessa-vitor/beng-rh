@@ -14,7 +14,7 @@
     --accent:#1F4E2C; --accent-soft:#e7efe9; --accent-dark:#163a20; --accent-text:#ffffff;
     --danger:#a8341f; --radius:10px;
     --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
-    --font-doc: Georgia, "Times New Roman", serif;
+    --font-doc: Arial, "Helvetica Neue", Helvetica, sans-serif;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
@@ -83,7 +83,7 @@
 
   .doc-toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px; }
   .doc-preview-wrap{ background:var(--bg); border-radius:var(--radius); padding:26px; }
-  .doc-sheet{ background:#fff; max-width:760px; margin:0 auto; padding:56px 60px; box-shadow:0 2px 18px rgba(0,0,0,.08); font-family:var(--font-doc); font-size:13.5px; line-height:1.65; color:#1a1a1a; }
+  .doc-sheet{ background:#fff; max-width:760px; margin:0 auto; padding:56px 60px; box-shadow:0 2px 18px rgba(0,0,0,.08); font-family:var(--font-doc); font-size:12pt; line-height:1.5; color:#1a1a1a; }
   .doc-sheet h1{ font-size:18px; text-align:center; margin:0 0 22px 0; }
   .doc-sheet .doc-logo{ text-align:center; margin-bottom:14px; }
   .doc-sheet .doc-logo img{ height:44px; }
@@ -178,11 +178,13 @@
     <button data-view="obras" onclick="showView('obras')"><span class="icon">&#127959;&#65039;</span> Obras</button>
     <button data-view="padrao" onclick="showView('padrao')"><span class="icon">&#128196;</span> Regimento &amp; Guia</button>
     <button data-view="empresa" onclick="showView('empresa')"><span class="icon">&#9881;</span> Dados da Empresa</button>
+    <button data-view="usuarios" onclick="showView('usuarios')"><span class="icon">&#128100;</span> Usuários</button>
   </nav>
 
   <div class="sidebar-foot">
     <div><span class="sync-dot"></span>Banco de dados em nuvem (Firebase)</div>
     <div style="margin-top:4px;">Conectado como <strong id="authUserLabel">—</strong></div>
+    <div style="margin-top:2px;">Perfil: <strong id="sidebarRoleLabel">—</strong></div>
     <button class="btn btn-ghost" style="margin-top:8px; width:100%; justify-content:center; padding:6px;" onclick="doLogout()">Sair</button>
   </div>
 </div>
@@ -233,8 +235,8 @@
           <select id="filtroObra" onchange="renderColabTable()" style="font-family:var(--font-ui); font-size:13px; padding:8px 10px; border:1px solid var(--line); border-radius:7px;">
             <option value="">Todas as obras</option>
           </select>
-          <button class="btn btn-ghost" onclick="exportCSV()">&#8681; Exportar CSV</button>
-          <button class="btn btn-primary" onclick="openColabModal()">+ Novo colaborador</button>
+          <button class="btn btn-ghost" id="btnExportCSV" onclick="exportCSV()">&#8681; Exportar CSV</button>
+          <button class="btn btn-primary" id="btnNovoColab" onclick="openColabModal()">+ Novo colaborador</button>
         </div>
       </div>
       <div id="colabTableWrap"></div>
@@ -353,7 +355,10 @@
       <div class="btn-row"><button class="btn btn-primary" onclick="saveEpi()">Registrar</button></div>
     </div>
     <div class="card" id="epiListCard" style="display:none;">
-      <h3>Histórico de EPIs</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+        <h3 style="margin:0;">Histórico de EPIs</h3>
+        <button class="btn btn-ghost" onclick="imprimirHistoricoEpis()">&#128196; Imprimir histórico p/ assinatura física</button>
+      </div>
       <div id="epiList"></div>
     </div>
   </section>
@@ -460,7 +465,45 @@
     </div>
   </section>
 
+  <section class="view" id="view-usuarios">
+    <h1 class="page-title">Usuários</h1>
+    <p class="page-sub">Defina o perfil de acesso de cada pessoa. <strong>Admin</strong> vê e edita tudo. <strong>Engenheiro/Mestre de Obras</strong> vê apenas sua equipe (obra), sem salário nem documentos sensíveis. <strong>SESMT</strong> foca em EPIs, ocorrências e checklist.</p>
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h3 style="margin:0;">Usuários cadastrados</h3>
+        <button class="btn btn-primary" onclick="openUsuarioModal()">+ Novo usuário</button>
+      </div>
+      <div id="usuariosTableWrap"></div>
+      <div class="banner" style="margin-top:14px; margin-bottom:0;">&#8505;&#65039; A pessoa precisa já ter um login criado no Firebase Authentication (Authentication → Users) com este mesmo e-mail — cadastrar aqui só define o que ela pode ver e fazer dentro do sistema.</div>
+    </div>
+  </section>
+
 </main>
+
+<div class="modal-backdrop" id="usuarioModalBackdrop">
+  <div class="modal">
+    <h3 id="usuarioModalTitle">Novo usuário</h3>
+    <input type="hidden" id="usuarioEmailOriginal" />
+    <div class="grid full">
+      <div class="field"><label>E-mail (o mesmo do login)</label><input id="usuarioEmail" placeholder="nome@empresa.com" /></div>
+      <div class="field"><label>Nome</label><input id="usuarioNome" placeholder="Nome completo" /></div>
+      <div class="field"><label>Perfil de acesso</label>
+        <select id="usuarioPapel" onchange="onUsuarioPapelChange()">
+          <option value="admin">Admin / RH</option>
+          <option value="engenheiro">Engenheiro / Mestre de Obras</option>
+          <option value="sesmt">SESMT (Técnico de Segurança)</option>
+        </select>
+      </div>
+      <div class="field" id="usuarioObraWrap" style="display:none;"><label>Obra (equipe que ele vai enxergar)</label>
+        <select id="usuarioObra"></select>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveUsuario()">Salvar</button>
+      <button class="btn btn-ghost" onclick="closeUsuarioModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-backdrop" id="colabModalBackdrop">
   <div class="modal">
@@ -471,7 +514,7 @@
       <div>
         <label style="display:block; font-size:11px; font-weight:700; color:var(--ink-soft); text-transform:uppercase; margin-bottom:5px;">Foto do colaborador</label>
         <input type="file" id="fotoFile" accept="image/*" onchange="uploadFoto()" style="font-size:12px;" />
-        <div id="fotoHint" class="field-hint">Salve o colaborador primeiro para adicionar a foto.</div>
+        <div id="fotoHint" class="field-hint" style="display:none;">Você já pode adicionar a foto agora — não precisa salvar antes.</div>
       </div>
     </div>
     <div class="grid">
@@ -505,8 +548,23 @@
       </div>
       <div class="field"><label>CPF</label><input id="cCpf" placeholder="000.000.000-00" /></div>
       <div class="field"><label>RG</label><input id="cRg" /></div>
+      <div class="field"><label>PIS / PASEP / NIS</label><input id="cPis" placeholder="000.00000.00-0" /></div>
+      <div class="field"><label>CBO (Classificação Brasileira de Ocupações)</label><input id="cCbo" placeholder="Ex: 7152-10" /></div>
+      <div class="field"><label>Sexo</label>
+        <select id="cSexo"><option value="">Selecione</option><option value="Masculino">Masculino</option><option value="Feminino">Feminino</option></select>
+      </div>
       <div class="field"><label>Nacionalidade</label><input id="cNacionalidade" value="brasileira" /></div>
-      <div class="field"><label>Estado civil</label><input id="cEstadoCivil" /></div>
+      <div class="field"><label>Estado civil</label>
+        <select id="cEstadoCivil">
+          <option value="">Selecione</option>
+          <option value="Solteiro(a)">Solteiro(a)</option>
+          <option value="Casado(a)">Casado(a)</option>
+          <option value="União Estável">União Estável</option>
+          <option value="Divorciado(a)">Divorciado(a)</option>
+          <option value="Separado(a) judicialmente">Separado(a) judicialmente</option>
+          <option value="Viúvo(a)">Viúvo(a)</option>
+        </select>
+      </div>
       <div class="field" style="grid-column:1 / -1;"><label>Endereço completo</label><input id="cEndereco" /></div>
       <div class="field"><label>Salário mensal (R$)</label><input id="cSalario" placeholder="Ex: 2.400,00" /></div>
       <div class="field"><label>Salário por extenso</label><input id="cSalarioExtenso" placeholder="Ex: dois mil e quatrocentos reais" /></div>
@@ -547,7 +605,7 @@
       </div>
       <div id="docList" style="margin-top:10px;"></div>
     </div>
-    <div id="docAnexosHint" class="field-hint" style="margin-top:14px;">Salve o colaborador primeiro para anexar documentos.</div>
+    <div id="docAnexosHint" class="field-hint" style="margin-top:14px; display:none;">Você já pode anexar documentos agora — não precisa salvar antes.</div>
 
     <div class="btn-row">
       <button class="btn btn-primary" onclick="saveColaborador()">Salvar</button>
@@ -667,6 +725,32 @@ function initFirebase(){
   }
 }
 
+/* =========================================================================
+   PERFIS DE ACESSO (RBAC) — edite a lista abaixo com o(s) e-mail(s) que
+   devem ser Admin mesmo antes de qualquer cadastro em "Usuários" (evita
+   ficar sem ninguém com acesso total no primeiro uso do sistema).
+========================================================================= */
+const ADMIN_EMAILS_PADRAO = ["vitor@bengconstrutora.com"];
+let currentUserRole = null; // 'admin' | 'engenheiro' | 'sesmt' | null (sem papel definido)
+let currentUserObra = '';   // usado para restringir a equipe do Engenheiro
+
+async function loadUserRole(){
+  const email = (auth && auth.currentUser && auth.currentUser.email) || '';
+  if(ADMIN_EMAILS_PADRAO.map(e=>e.toLowerCase()).includes(email.toLowerCase())){
+    currentUserRole = 'admin'; currentUserObra = '';
+    return;
+  }
+  try{
+    const doc = await db.collection('usuarios').doc(email).get();
+    if(doc.exists){
+      currentUserRole = doc.data().papel || null;
+      currentUserObra = doc.data().obra || '';
+    } else {
+      currentUserRole = null; currentUserObra = '';
+    }
+  }catch(e){ console.error('Erro ao carregar papel do usuário:', e); currentUserRole = null; }
+}
+
 /* ---------- AUDITORIA — quem/quando salvou cada registro ---------- */
 function auditFields(isCreate){
   const email = (auth && auth.currentUser && auth.currentUser.email) || 'desconhecido';
@@ -782,9 +866,47 @@ function showView(name){
   if(name==='obras'){ renderObrasTable(); renderRelatorioAlocacao(); }
   if(name==='padrao') renderPadrao();
   if(name==='empresa') renderEmpresaForm();
+  if(name==='usuarios') renderUsuariosTable();
 }
 function renderAllViews(){
   renderBrand(); renderPainel(); renderColabTable(); populateColabSelects(); renderContrato(); renderPadrao(); renderEmpresaForm(); renderObrasTable(); renderRelatorioAlocacao();
+}
+
+/* =========================================================================
+   APLICAÇÃO DO PERFIL NA INTERFACE (esconde abas e campos sensíveis)
+========================================================================= */
+const VIEWS_POR_PAPEL = {
+  admin: null, // null = vê tudo
+  sesmt: ['painel','colaboradores','checklist','ocorrencias','epis','padrao'],
+  engenheiro: ['painel','colaboradores','ocorrencias','padrao'],
+};
+const CAMPOS_SIGILOSOS_IDS = ['cSalario','cSalarioExtenso','cPis']; // ficam ocultos para quem não é admin
+
+function applyRoleUI(){
+  const permitido = VIEWS_POR_PAPEL[currentUserRole];
+  document.querySelectorAll('nav.nav button[data-view]').forEach(btn=>{
+    const v = btn.dataset.view;
+    btn.style.display = (permitido===null || permitido.includes(v)) ? '' : 'none';
+  });
+  document.getElementById('sidebarRoleLabel') && (document.getElementById('sidebarRoleLabel').textContent = rotuloPapel(currentUserRole));
+}
+function rotuloPapel(papel){
+  return papel==='admin' ? 'Admin/RH' : papel==='sesmt' ? 'SESMT' : papel==='engenheiro' ? 'Engenheiro' : '—';
+}
+function aplicarSigiloNoModal(){
+  const podeVerSalario = currentUserRole==='admin';
+  CAMPOS_SIGILOSOS_IDS.forEach(id=>{
+    const el = document.getElementById(id);
+    if(el && el.closest('.field')) el.closest('.field').style.display = podeVerSalario ? '' : 'none';
+  });
+  document.getElementById('docAnexosWrap').style.display = podeVerSalario || currentUserRole==='sesmt' ? 'block' : 'none';
+
+  const somenteLeitura = currentUserRole==='engenheiro';
+  document.querySelectorAll('#colabModalBackdrop input, #colabModalBackdrop select, #colabModalBackdrop textarea').forEach(el=>{
+    el.disabled = somenteLeitura;
+  });
+  const btnSalvar = document.querySelector('#colabModalBackdrop .btn-primary');
+  if(btnSalvar) btnSalvar.style.display = somenteLeitura ? 'none' : '';
 }
 
 /* ---------- PAINEL (dashboard) ---------- */
@@ -875,18 +997,38 @@ function exportCSV(){
 }
 
 const CARGOS_PADRAO = ["Pedreiro","Servente","Carpinteiro","Armador","Eletricista","Encanador / Bombeiro Hidráulico","Pintor","Mestre de Obras","Técnico de Segurança do Trabalho","Engenheiro(a)","Auxiliar Administrativo"];
+const CBO_POR_CARGO = {
+  "Pedreiro": "7152-10",
+  "Servente": "7170-20",
+  "Carpinteiro": "7155-05",
+  "Armador": "7153-15",
+  "Eletricista": "7156-10",
+  "Encanador / Bombeiro Hidráulico": "7241-10",
+  "Pintor": "7166-10",
+  "Mestre de Obras": "7102-05",
+  "Técnico de Segurança do Trabalho": "3516-05",
+  "Engenheiro(a)": "2142-05",
+  "Auxiliar Administrativo": "4110-05",
+};
 
 function onCargoChange(){
   const sel = document.getElementById('cFuncao');
   document.getElementById('cFuncaoOutraWrap').style.display = sel.value==='Outro' ? 'block' : 'none';
+  const cboField = document.getElementById('cCbo');
+  if(sel.value!=='Outro' && CBO_POR_CARGO[sel.value]) cboField.value = CBO_POR_CARGO[sel.value];
 }
 
 /* ---------- COLABORADORES ---------- */
+let currentColabIsNew = false;
+let currentColabHasDraftDoc = false;
+
 function openColabModal(id){
   document.getElementById('colabModalTitle').textContent = id ? 'Editar colaborador' : 'Novo colaborador';
-  document.getElementById('colabId').value = id || '';
   populateObraSelectColab();
   if(id){
+    currentColabIsNew = false;
+    currentColabHasDraftDoc = false;
+    document.getElementById('colabId').value = id;
     const c = colaboradores.find(x=>x.id===id);
     document.getElementById('cNome').value = c.nome||'';
     if(c.funcao && !CARGOS_PADRAO.includes(c.funcao)){
@@ -907,6 +1049,9 @@ function openColabModal(id){
     document.getElementById('cMatricula').value = c.matricula||'';
     document.getElementById('cCpf').value = c.cpf||'';
     document.getElementById('cRg').value = c.rg||'';
+    document.getElementById('cPis').value = c.pis||'';
+    document.getElementById('cCbo').value = c.cbo||'';
+    document.getElementById('cSexo').value = c.sexo||'';
     document.getElementById('cNacionalidade').value = c.nacionalidade||'brasileira';
     document.getElementById('cEstadoCivil').value = c.estadoCivil||'';
     document.getElementById('cEndereco').value = c.endereco||'';
@@ -918,28 +1063,63 @@ function openColabModal(id){
     document.getElementById('cFimExperiencia').value = c.fimExperiencia||'';
     document.getElementById('cAsoValidade').value = c.asoValidade||'';
     document.getElementById('cTreinoValidade').value = c.treinoValidade||'';
-    document.getElementById('docAnexosWrap').style.display = 'block';
-    document.getElementById('docAnexosHint').style.display = 'none';
-    document.getElementById('fotoHint').style.display = 'none';
     renderDocList(id);
     renderFotoPreview(id);
   } else {
-    ['cNome','cCpf','cRg','cEstadoCivil','cEndereco','cSalario','cSalarioExtenso','cData','cFimExperiencia','cAsoValidade','cTreinoValidade','cFuncaoOutra','cObraOutra','cMatricula'].forEach(f=>document.getElementById(f).value='');
+    currentColabIsNew = true;
+    currentColabHasDraftDoc = false;
+    document.getElementById('colabId').value = 'c'+Date.now(); // gerado já na abertura, para permitir anexar foto/docs imediatamente
+    ['cNome','cCpf','cRg','cPis','cCbo','cEstadoCivil','cEndereco','cSalario','cSalarioExtenso','cData','cFimExperiencia','cAsoValidade','cTreinoValidade','cFuncaoOutra','cObraOutra','cMatricula'].forEach(f=>document.getElementById(f).value='');
     document.getElementById('cObra').value = '';
+    document.getElementById('cSexo').value = '';
     document.getElementById('cNacionalidade').value='brasileira';
     document.getElementById('cStatus').value='admissao';
     document.getElementById('cTipoContrato').value='indeterminado';
     document.getElementById('cFuncao').value='Pedreiro';
-    document.getElementById('docAnexosWrap').style.display = 'none';
-    document.getElementById('docAnexosHint').style.display = 'block';
-    document.getElementById('fotoHint').style.display = 'block';
     document.getElementById('fotoPreview').innerHTML = '&#128100;';
+    document.getElementById('docList').innerHTML = '<div class="field-hint">Nenhum documento anexado ainda.</div>';
   }
+  document.getElementById('docAnexosWrap').style.display = 'block';
+  document.getElementById('docAnexosHint').style.display = 'none';
+  document.getElementById('fotoHint').style.display = 'none';
   onCargoChange();
   onObraSelectChange();
+  aplicarSigiloNoModal();
   document.getElementById('colabModalBackdrop').classList.add('active');
 }
-function closeColabModal(){ document.getElementById('colabModalBackdrop').classList.remove('active'); }
+
+// Garante que existe um documento (mesmo que rascunho) no Firestore antes de poder anexar foto/documentos
+async function ensureDraftDoc(){
+  const colabId = document.getElementById('colabId').value;
+  if(!currentColabIsNew || currentColabHasDraftDoc) return colabId;
+  const nome = document.getElementById('cNome').value.trim() || '(cadastro em andamento)';
+  const draft = { id: colabId, nome, status: 'admissao', ...auditFields(true) };
+  try{
+    await db.collection('colaboradores').doc(colabId).set(draft, { merge: true });
+  }catch(e){ console.error(e); alert(traduzErroDados(e)); throw e; }
+  colaboradores.push(draft);
+  currentColabHasDraftDoc = true;
+  return colabId;
+}
+
+async function closeColabModal(){
+  document.getElementById('colabModalBackdrop').classList.remove('active');
+  // Se era um cadastro novo, teve arquivo anexado, mas não chegou a ser salvo de verdade — remove o rascunho para não sujar a base
+  if(currentColabIsNew && currentColabHasDraftDoc){
+    const colabId = document.getElementById('colabId').value;
+    try{
+      const c = colaboradores.find(x=>x.id===colabId);
+      const arquivos = [...((c && c.documentos) || [])];
+      if(c && c.fotoPath) arquivos.push({ path: c.fotoPath });
+      for(const a of arquivos){ if(a.path){ try{ await storage.ref(a.path).delete(); }catch(e){ console.error(e); } } }
+      await db.collection('colaboradores').doc(colabId).delete();
+    }catch(e){ console.error(e); }
+    colaboradores = colaboradores.filter(x=>x.id!==colabId);
+    renderColabTable(); populateColabSelects();
+  }
+  currentColabIsNew = false;
+  currentColabHasDraftDoc = false;
+}
 
 /* ---------- OBRAS (cadastro padronizado + relatório de alocação) ---------- */
 let obras = [];
@@ -1107,11 +1287,11 @@ function renderFotoPreview(colabId){
   else{ box.innerHTML = '&#128100;'; }
 }
 async function uploadFoto(){
-  const colabId = document.getElementById('colabId').value;
-  if(!colabId){ alert('Salve o colaborador antes de adicionar a foto.'); return; }
   const fileInput = document.getElementById('fotoFile');
   const file = fileInput.files[0];
   if(!file) return;
+  let colabId;
+  try{ colabId = await ensureDraftDoc(); }catch(e){ return; }
   try{
     const c = colaboradores.find(x=>x.id===colabId);
     if(c && c.fotoPath){ try{ await storage.ref(c.fotoPath).delete(); }catch(e){ console.error(e); } }
@@ -1133,17 +1313,20 @@ async function saveColaborador(){
   const funcao = funcaoSel==='Outro' ? document.getElementById('cFuncaoOutra').value.trim() : funcaoSel;
   const obraSel = document.getElementById('cObra').value;
   const obra = obraSel==='Outra' ? document.getElementById('cObraOutra').value.trim() : obraSel;
-  const isNew = !id;
-  const statusAnterior = id ? (colaboradores.find(x=>x.id===id)||{}).status : null;
-  const novoId = id || ('c'+Date.now());
+  const isNew = currentColabIsNew;
+  const registroAtual = colaboradores.find(x=>x.id===id);
+  const statusAnterior = registroAtual ? registroAtual.status : null;
   const status = document.getElementById('cStatus').value;
   const data = {
-    id: novoId, nome,
+    id, nome,
     funcao,
     obra,
     matricula: document.getElementById('cMatricula').value.trim(),
     cpf: document.getElementById('cCpf').value.trim(),
     rg: document.getElementById('cRg').value.trim(),
+    pis: document.getElementById('cPis').value.trim(),
+    cbo: document.getElementById('cCbo').value.trim(),
+    sexo: document.getElementById('cSexo').value,
     nacionalidade: document.getElementById('cNacionalidade').value.trim(),
     estadoCivil: document.getElementById('cEstadoCivil').value.trim(),
     endereco: document.getElementById('cEndereco').value.trim(),
@@ -1160,21 +1343,22 @@ async function saveColaborador(){
   // Desligamento agora: gera automaticamente o checklist de desligamento (vazio, pronto para marcar)
   const viraDesligado = status === 'desligado' && statusAnterior !== 'desligado';
   if(viraDesligado){
-    const jaTemChecklist = id && colaboradores.find(x=>x.id===id) && colaboradores.find(x=>x.id===id).checklistDesligamento;
+    const jaTemChecklist = registroAtual && registroAtual.checklistDesligamento;
     if(!jaTemChecklist) data.checklistDesligamento = {};
   }
-  if(id){ const idx = colaboradores.findIndex(x=>x.id===id); colaboradores[idx] = { ...colaboradores[idx], ...data }; }
-  else{ colaboradores.push(data); }
   try{
-    await db.collection('colaboradores').doc(data.id).set(data, { merge: true });
+    await db.collection('colaboradores').doc(id).set(data, { merge: true });
   }catch(e){
     console.error(e);
-    // Desfaz a mutação local otimista e recarrega o estado real do servidor, já que a gravação falhou
-    await loadAll();
+    await loadAll(); // recarrega o estado real do servidor, já que a gravação falhou
     alert(traduzErroDados(e));
     return;
   }
-  closeColabModal(); renderColabTable(); populateColabSelects(); renderRelatorioAlocacao(); renderPainel();
+  const idx = colaboradores.findIndex(x=>x.id===id);
+  if(idx>-1) colaboradores[idx] = { ...colaboradores[idx], ...data }; else colaboradores.push(data);
+  currentColabIsNew = false; currentColabHasDraftDoc = false; // já foi salvo de verdade — Cancelar não deve mais apagar
+  document.getElementById('colabModalBackdrop').classList.remove('active');
+  renderColabTable(); populateColabSelects(); renderRelatorioAlocacao(); renderPainel();
   if(viraDesligado){
     alert('Colaborador marcado como desligado. Um Checklist de Desligamento foi criado — acesse "Checklist Admissão" e troque o tipo para "Desligamento".');
   }
@@ -1226,7 +1410,13 @@ function renderColabTable(){
   const filtroFuncao = document.getElementById('filtroFuncao').value;
   const filtroObra = document.getElementById('filtroObra').value;
   const busca = (document.getElementById('buscaColab').value || '').trim().toLowerCase();
+  const somenteLeitura = currentUserRole==='engenheiro';
+  const btnNovo = document.getElementById('btnNovoColab');
+  if(btnNovo) btnNovo.style.display = somenteLeitura ? 'none' : '';
+  const btnCSV = document.getElementById('btnExportCSV');
+  if(btnCSV) btnCSV.style.display = somenteLeitura ? 'none' : '';
   let list = colaboradores;
+  if(currentUserRole==='engenheiro') list = list.filter(c=>c.obra===currentUserObra); // Engenheiro só vê a própria equipe
   if(filtroFuncao) list = list.filter(c=>c.funcao===filtroFuncao);
   if(filtroObra) list = list.filter(c=>c.obra===filtroObra);
   if(busca) list = list.filter(c=>
@@ -1243,17 +1433,18 @@ function renderColabTable(){
     const avatar = c.fotoUrl
       ? '<img src="'+c.fotoUrl+'" style="width:30px; height:30px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:8px;" />'
       : '<span style="display:inline-flex; width:30px; height:30px; border-radius:50%; background:var(--bg); align-items:center; justify-content:center; vertical-align:middle; margin-right:8px; font-size:13px; color:var(--ink-soft);">&#128100;</span>';
+    const acoes = somenteLeitura
+      ? '<button title="Ver" onclick="openColabModal(\''+c.id+'\')">&#128065;&#65039;</button>'
+      : '<button title="Editar" onclick="openColabModal(\''+c.id+'\')">&#9998;</button>'+
+        '<button title="Gerar contrato" onclick="goToContrato(\''+c.id+'\')">&#128196;</button>'+
+        '<button title="Excluir" onclick="deleteColaborador(\''+c.id+'\')">&#128465;</button>';
     return '<tr>'+
       '<td>'+avatar+'<strong>'+escapeHtml(c.nome)+'</strong><br><span style="color:var(--ink-soft); font-size:11.5px; margin-left:38px;">'+escapeHtml(c.funcao||'—')+(c.matricula?' &middot; Matr. '+escapeHtml(c.matricula):'')+'</span></td>'+
       '<td>'+escapeHtml(c.obra||'—')+'</td>'+
       '<td>'+escapeHtml(c.cpf||'—')+'</td>'+
       '<td>'+fmtData(c.dataAdmissao)+'</td>'+
       '<td><span class="tag">'+statusLabel+'</span></td>'+
-      '<td class="row-actions">'+
-        '<button title="Editar" onclick="openColabModal(\''+c.id+'\')">&#9998;</button>'+
-        '<button title="Gerar contrato" onclick="goToContrato(\''+c.id+'\')">&#128196;</button>'+
-        '<button title="Excluir" onclick="deleteColaborador(\''+c.id+'\')">&#128465;</button>'+
-      '</td></tr>';
+      '<td class="row-actions">'+acoes+'</td></tr>';
   }).join('');
   wrap.innerHTML = '<table><thead><tr><th>Colaborador</th><th>Obra</th><th>CPF</th><th>Admissão</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
@@ -1312,11 +1503,11 @@ function fichaColaboradorHTML(c){
     '</div>' +
   '</div>' +
   '<h2>Dados Pessoais</h2>' +
-  '<p><strong>CPF:</strong> '+hl(c.cpf)+' &nbsp; <strong>RG:</strong> '+hl(c.rg)+'</p>' +
-  '<p><strong>Nacionalidade:</strong> '+escapeHtml(c.nacionalidade||'—')+' &nbsp; <strong>Estado civil:</strong> '+escapeHtml(c.estadoCivil||'—')+'</p>' +
+  '<p><strong>CPF:</strong> '+hl(c.cpf)+' &nbsp; <strong>RG:</strong> '+hl(c.rg)+' &nbsp; <strong>PIS/PASEP/NIS:</strong> '+hl(c.pis)+'</p>' +
+  '<p><strong>Sexo:</strong> '+escapeHtml(c.sexo||'—')+' &nbsp; <strong>Nacionalidade:</strong> '+escapeHtml(c.nacionalidade||'—')+' &nbsp; <strong>Estado civil:</strong> '+escapeHtml(c.estadoCivil||'—')+'</p>' +
   '<p><strong>Endereço:</strong> '+escapeHtml(c.endereco||'—')+'</p>' +
   '<h2>Dados Contratuais</h2>' +
-  '<p><strong>Cargo:</strong> '+escapeHtml(c.funcao||'—')+' &nbsp; <strong>Obra/Lotação:</strong> '+escapeHtml(c.obra||'—')+'</p>' +
+  '<p><strong>Cargo:</strong> '+escapeHtml(c.funcao||'—')+' &nbsp; <strong>CBO:</strong> '+escapeHtml(c.cbo||'—')+' &nbsp; <strong>Obra/Lotação:</strong> '+escapeHtml(c.obra||'—')+'</p>' +
   '<p><strong>Data de admissão:</strong> '+fmtData(c.dataAdmissao)+' &nbsp; <strong>Tipo de contrato:</strong> '+escapeHtml(c.tipoContrato==='indeterminado'?'Prazo indeterminado':(c.tipoContrato||'—'))+'</p>' +
   '<p><strong>Salário:</strong> R$ '+escapeHtml(c.salario||'—')+' ('+escapeHtml(c.salarioExtenso||'—')+')</p>' +
   '<h2>Segurança e Saúde Ocupacional</h2>' +
@@ -1637,16 +1828,54 @@ async function verReciboEpi(colabId, epiId){
   showView('epirecibo');
 }
 
+function historicoEpisHTML(colabId, lista){
+  const c = colaboradores.find(x=>x.id===colabId) || {};
+  const linhas = lista.map(ep=>{
+    const acao = ep.statusEpi==='Devolvido' ? 'Devolução' : 'Entrega';
+    const prova = ep.recusaAssinatura ? 'Testemunhas: '+escapeHtml(ep.testemunha1||'')+' / '+escapeHtml(ep.testemunha2||'') : 'Assinado digitalmente na entrega';
+    return '<tr>'+
+      '<td style="padding:5px; border-bottom:1px solid #ddd;">'+fmtData(ep.data)+'</td>'+
+      '<td style="padding:5px; border-bottom:1px solid #ddd;">'+escapeHtml(ep.nomeEpi)+'</td>'+
+      '<td style="padding:5px; border-bottom:1px solid #ddd;">'+escapeHtml(ep.ca||'—')+'</td>'+
+      '<td style="padding:5px; border-bottom:1px solid #ddd;">'+escapeHtml(String(ep.quantidade))+'</td>'+
+      '<td style="padding:5px; border-bottom:1px solid #ddd;">'+acao+'</td>'+
+      '<td style="padding:5px; border-bottom:1px solid #ddd; font-size:10.5px; color:#666;">'+prova+'</td>'+
+    '</tr>';
+  }).join('');
+  return logoBlock() +
+    '<h1>HISTÓRICO CONSOLIDADO DE ENTREGA DE EPI</h1>' +
+    '<p style="text-align:center; color:#888; font-size:12px;">'+escapeHtml(empresa.nome)+' &middot; CNPJ '+hl(empresa.cnpj)+'</p>' +
+    '<p><strong>Colaborador:</strong> '+escapeHtml(c.nome||'—')+' &nbsp; <strong>CPF:</strong> '+escapeHtml(c.cpf||'—')+' &nbsp; <strong>Matrícula:</strong> '+escapeHtml(c.matricula||'—')+'</p>' +
+    '<p><strong>Função:</strong> '+escapeHtml(c.funcao||'—')+' &nbsp; <strong>Obra/Lotação:</strong> '+escapeHtml(c.obra||'—')+'</p>' +
+    '<table style="width:100%; border-collapse:collapse; margin-top:14px; font-size:11.5px;">' +
+      '<thead><tr>'+['Data','EPI','C.A.','Qtd','Ação','Registro de prova'].map(h=>'<th style="text-align:left; padding:5px; border-bottom:2px solid #333; font-size:10.5px; text-transform:uppercase; color:#555;">'+h+'</th>').join('')+'</tr></thead>' +
+      '<tbody>'+(linhas || '<tr><td colspan="6" style="padding:10px; text-align:center; color:#888;">Nenhum registro.</td></tr>')+'</tbody>' +
+    '</table>' +
+    '<p style="margin-top:20px;">Declaro, para os devidos fins e nos termos da NR-06, estar ciente de todas as entregas e devoluções de Equipamentos de Proteção Individual listadas acima, tendo recebido treinamento e orientação quanto ao uso correto, guarda e conservação de cada equipamento.</p>' +
+    '<p style="margin-top:6px; font-size:11px; color:#888;">Esta assinatura física complementa (não substitui) as assinaturas digitais individuais já coletadas no ato de cada entrega, reforçando a validade probatória do registro perante eventual questionamento judicial.</p>' +
+    '<div class="sign" style="margin-top:40px;"><div class="line"></div>'+escapeHtml(c.nome||'[NOME DO COLABORADOR]')+' — assinatura física</div>' +
+    '<p style="margin-top:10px;">'+ hl(empresa.cidade) +', ____ de ____________ de '+new Date().getFullYear()+'.</p>' +
+    '<p style="margin-top:26px; font-size:11px; color:#888;">Documento gerado automaticamente pelo sistema em '+new Date().toLocaleString('pt-BR')+'.</p>';
+}
+async function imprimirHistoricoEpis(){
+  const colabId = document.getElementById('epiColabSelect').value;
+  if(!colabId){ alert('Selecione um colaborador.'); return; }
+  const lista = (await getEpis(colabId)).sort((a,b)=> (a.data||'').localeCompare(b.data||''));
+  document.getElementById('epiReciboSheet').innerHTML = historicoEpisHTML(colabId, lista);
+  showView('epirecibo');
+  printView('epirecibo');
+}
+
 /* ---------- DOCUMENTOS ANEXOS (Firebase Storage) ---------- */
 async function uploadDocumento(){
-  const colabId = document.getElementById('colabId').value;
-  if(!colabId){ alert('Salve o colaborador antes de anexar documentos.'); return; }
   const fileInput = document.getElementById('docFile');
   const file = fileInput.files[0];
   if(!file){ alert('Escolha um arquivo primeiro.'); return; }
   const tipo = document.getElementById('docTipo').value;
   const msgEl = document.getElementById('docUploadMsg');
   msgEl.textContent = 'Enviando…';
+  let colabId;
+  try{ colabId = await ensureDraftDoc(); }catch(e){ msgEl.textContent=''; return; }
   try{
     const path = 'colaboradores/'+colabId+'/'+Date.now()+'_'+file.name;
     const snapshot = await storage.ref(path).put(file);
@@ -1826,6 +2055,90 @@ async function saveEmpresaForm(){
   renderPadrao();
 }
 
+/* =========================================================================
+   USUÁRIOS (perfis de acesso) — somente Admin vê e edita esta tela
+========================================================================= */
+let usuarios = [];
+async function loadUsuarios(){
+  if(!db || currentUserRole!=='admin') return;
+  try{
+    const snap = await db.collection('usuarios').get();
+    usuarios = snap.docs.map(d=>({ email:d.id, ...d.data() }));
+  }catch(e){ console.error('usuarios', e); usuarios = []; }
+}
+async function renderUsuariosTable(){
+  const wrap = document.getElementById('usuariosTableWrap');
+  if(!wrap) return;
+  if(currentUserRole!=='admin'){
+    wrap.innerHTML = '<div class="empty-state">Só o perfil Admin pode gerenciar usuários.</div>';
+    return;
+  }
+  await loadUsuarios();
+  if(usuarios.length===0){
+    wrap.innerHTML = '<div class="empty-state"><div class="big">&#128100;</div>Nenhum usuário cadastrado ainda (além dos e-mails fixos de Admin no código).</div>';
+    return;
+  }
+  const rows = usuarios.map(u=>{
+    return '<tr>'+
+      '<td><strong>'+escapeHtml(u.nome||u.email)+'</strong><br><span style="color:var(--ink-soft); font-size:11.5px;">'+escapeHtml(u.email)+'</span></td>'+
+      '<td><span class="tag">'+rotuloPapel(u.papel)+'</span></td>'+
+      '<td>'+escapeHtml(u.obra||'—')+'</td>'+
+      '<td class="row-actions">'+
+        '<button title="Editar" onclick="openUsuarioModal(\''+u.email+'\')">&#9998;</button>'+
+        '<button title="Excluir" onclick="deleteUsuario(\''+u.email+'\')">&#128465;</button>'+
+      '</td></tr>';
+  }).join('');
+  wrap.innerHTML = '<table><thead><tr><th>Usuário</th><th>Perfil</th><th>Obra (se Engenheiro)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+function onUsuarioPapelChange(){
+  document.getElementById('usuarioObraWrap').style.display = document.getElementById('usuarioPapel').value==='engenheiro' ? 'block' : 'none';
+}
+function openUsuarioModal(email){
+  populateObraSelectColab(); // reaproveita a lista de obras já carregada
+  const selObra = document.getElementById('usuarioObra');
+  selObra.innerHTML = obras.map(o=>'<option value="'+escapeHtml(o.nome)+'">'+escapeHtml(o.nome)+'</option>').join('');
+  document.getElementById('usuarioModalTitle').textContent = email ? 'Editar usuário' : 'Novo usuário';
+  document.getElementById('usuarioEmailOriginal').value = email || '';
+  if(email){
+    const u = usuarios.find(x=>x.email===email);
+    document.getElementById('usuarioEmail').value = u.email;
+    document.getElementById('usuarioEmail').disabled = true;
+    document.getElementById('usuarioNome').value = u.nome||'';
+    document.getElementById('usuarioPapel').value = u.papel||'engenheiro';
+    document.getElementById('usuarioObra').value = u.obra||'';
+  } else {
+    document.getElementById('usuarioEmail').value = '';
+    document.getElementById('usuarioEmail').disabled = false;
+    document.getElementById('usuarioNome').value = '';
+    document.getElementById('usuarioPapel').value = 'engenheiro';
+  }
+  onUsuarioPapelChange();
+  document.getElementById('usuarioModalBackdrop').classList.add('active');
+}
+function closeUsuarioModal(){ document.getElementById('usuarioModalBackdrop').classList.remove('active'); }
+async function saveUsuario(){
+  const email = document.getElementById('usuarioEmail').value.trim().toLowerCase();
+  if(!email || !email.includes('@')){ alert('Informe um e-mail válido.'); return; }
+  const papel = document.getElementById('usuarioPapel').value;
+  const data = {
+    email, papel,
+    nome: document.getElementById('usuarioNome').value.trim(),
+    obra: papel==='engenheiro' ? document.getElementById('usuarioObra').value : '',
+    ...auditFields(!document.getElementById('usuarioEmailOriginal').value),
+  };
+  try{
+    await db.collection('usuarios').doc(email).set(data, { merge: true });
+  }catch(e){ console.error(e); alert(traduzErroDados(e)); return; }
+  closeUsuarioModal();
+  renderUsuariosTable();
+}
+async function deleteUsuario(email){
+  if(!confirm('Remover o acesso deste usuário ao sistema? O login dele no Firebase Authentication não é apagado — só o perfil dentro deste sistema.')) return;
+  try{ await db.collection('usuarios').doc(email).delete(); }
+  catch(e){ console.error(e); alert(traduzErroDados(e)); return; }
+  renderUsuariosTable();
+}
+
 /* ---------- IMPRESSÃO ---------- */
 function printView(which){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('printing'));
@@ -1918,12 +2231,32 @@ async function doLogout(){
 function onAuthenticated(user){
   document.getElementById('authGate').classList.remove('active');
   document.getElementById('authUserLabel').textContent = (user && user.email) || '—';
-  loadAll().then(()=>{
-    // Link direto: ?view=epis (ou colaboradores, checklist etc.) já abre na tela certa
-    const params = new URLSearchParams(window.location.search);
-    const alvo = params.get('view');
-    if(alvo && document.getElementById('view-'+alvo)) showView(alvo);
+  loadUserRole().then(()=>{
+    if(!currentUserRole){
+      showSemPapelWarning();
+      return;
+    }
+    loadAll().then(()=>{
+      applyRoleUI();
+      const params = new URLSearchParams(window.location.search);
+      const alvo = params.get('view');
+      if(alvo && document.getElementById('view-'+alvo)) showView(alvo);
+      else defaultViewForRole();
+    });
   });
+}
+function showSemPapelWarning(){
+  document.querySelector('main').innerHTML =
+    '<div class="card" style="max-width:640px; margin-top:40px;">'+
+    '<h3 style="color:#a8341f;">Seu acesso ainda não tem um perfil definido</h3>'+
+    '<p style="font-size:13.5px; line-height:1.6;">Seu login funcionou, mas nenhum Admin ainda liberou um perfil (Admin, Engenheiro ou SESMT) para o e-mail <strong>'+escapeHtml((auth&&auth.currentUser&&auth.currentUser.email)||'')+'</strong>. Peça para um Admin acessar "Usuários" e cadastrar seu acesso.</p>'+
+    '<button class="btn btn-ghost" style="margin-top:12px;" onclick="doLogout()">Sair</button>'+
+    '</div>';
+}
+function defaultViewForRole(){
+  if(currentUserRole==='sesmt') showView('epis');
+  else if(currentUserRole==='engenheiro') showView('colaboradores');
+  else showView('painel');
 }
 function initAuth(){
   const wrap = document.getElementById('authLogoWrap');
