@@ -463,7 +463,12 @@
       <div class="card" id="epiFormCard" style="display:none;">
         <h3>Registrar entrega ou devolução</h3>
         <div class="grid">
-          <div class="field"><label>Nome do EPI</label><input id="epiNome" placeholder="Ex: Capacete de segurança" /></div>
+          <div class="field"><label>EPI (cadastrado no Almoxarifado)</label>
+            <select id="epiItemSelect" onchange="onEpiItemChange()">
+              <option value="">Carregando itens do Almoxarifado…</option>
+            </select>
+            <span class="field-hint" id="epiItemHint"></span>
+          </div>
           <div class="field"><label>C.A. (Certificado de Aprovação)</label>
             <input id="epiCa" placeholder="Ex: 31469" maxlength="6" oninput="this.value=this.value.replace(/\D/g,''); validarCA();" />
             <span class="field-hint" id="caHint"></span>
@@ -1001,12 +1006,12 @@ let pendingLogo = null;
    FIREBASE — configure aqui com os dados do SEU projeto (veja o guia enviado)
 ========================================================================= */
 const firebaseConfig = {
-  apiKey: "AIzaSyD3wCWfikT2VqLfwoo8jZwPUFkhxD6J8AY",
-  authDomain: "beng-rh.firebaseapp.com",
-  projectId: "beng-rh",
-  storageBucket: "beng-rh.firebasestorage.app",
-  messagingSenderId: "202966425678",
-  appId: "1:202966425678:web:d8e4151604653ebd84e31f",
+  apiKey: "AIzaSyDSaQ-XvVmZLQU1fwk0zRZejgkly06oSPQ",
+  authDomain: "beng-construtora-v2.firebaseapp.com",
+  projectId: "beng-construtora-v2",
+  storageBucket: "beng-construtora-v2.firebasestorage.app",
+  messagingSenderId: "740027831150",
+  appId: "1:740027831150:web:dac167e6d3f14837efa77f",
 };
 let auth = null;
 let db = null;
@@ -1042,7 +1047,7 @@ async function loadUserRole(){
     return;
   }
   try{
-    const doc = await comTempoLimite(db.collection('usuarios').doc(email).get());
+    const doc = await comTempoLimite(db.collection('rh_usuarios').doc(email).get());
     if(doc.exists){
       currentUserRole = doc.data().papel || null;
       currentUserObra = doc.data().obra || '';
@@ -2434,6 +2439,51 @@ function onOcorRecusaChange(){
   document.getElementById('ocorTestemunhasWrap').style.display = checked ? 'grid' : 'none';
 }
 
+/* =========================================================================
+   INTEGRAÇÃO COM O ALMOXARIFADO (mesmo projeto Firebase, coleções `itens`
+   e `movimentacoes` mantidas pelo app de Almoxarifado — não criar coleções
+   novas, só ler/gravar nessas duas conforme o contrato já definido).
+========================================================================= */
+let itensEpiCache = [];
+let unsubscribeItensEpi = null;
+function iniciarListenerItensEpi(){
+  if(unsubscribeItensEpi || !db) return; // já está ouvindo
+  unsubscribeItensEpi = db.collection('itens').where('categoria','==','EPI')
+    .onSnapshot(snap=>{
+      itensEpiCache = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+      popularSelectItensEpi();
+    }, err=>{
+      console.error('Erro ao ouvir itens do Almoxarifado:', err);
+      const sel = document.getElementById('epiItemSelect');
+      if(sel) sel.innerHTML = '<option value="">Não foi possível carregar os itens do Almoxarifado</option>';
+    });
+}
+function popularSelectItensEpi(){
+  const sel = document.getElementById('epiItemSelect');
+  if(!sel) return;
+  const prev = sel.value;
+  if(itensEpiCache.length===0){
+    sel.innerHTML = '<option value="">Nenhum EPI cadastrado no Almoxarifado ainda</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">Selecione o EPI</option>' +
+    itensEpiCache.map(it=>
+      '<option value="'+it.id+'">'+escapeHtml(it.nome)+' — estoque: '+(it.estoqueAtual!=null?it.estoqueAtual:'?')+' '+escapeHtml(it.unidade||'')+'</option>'
+    ).join('');
+  if(itensEpiCache.some(it=>it.id===prev)) sel.value = prev;
+  onEpiItemChange();
+}
+function onEpiItemChange(){
+  const sel = document.getElementById('epiItemSelect');
+  const hint = document.getElementById('epiItemHint');
+  const it = itensEpiCache.find(x=>x.id===sel.value);
+  if(!it){ hint.textContent = ''; return; }
+  const baixo = (it.estoqueAtual!=null && it.estoqueMinimo!=null && it.estoqueAtual<=it.estoqueMinimo);
+  hint.innerHTML = baixo
+    ? '<span style="color:#a8341f;">Estoque no ou abaixo do mínimo ('+it.estoqueMinimo+') — considere avisar o Almoxarifado.</span>'
+    : 'Estoque atual: '+(it.estoqueAtual!=null?it.estoqueAtual:'—')+' '+escapeHtml(it.unidade||'');
+}
+
 async function getEpis(colabId){
   if(!db) return [];
   try{
@@ -2442,6 +2492,7 @@ async function getEpis(colabId){
   }catch(e){ console.error(e); return []; }
 }
 async function renderEpis(){
+  iniciarListenerItensEpi();
   const colabId = document.getElementById('epiColabSelect').value;
   const formCard = document.getElementById('epiFormCard');
   const listCard = document.getElementById('epiListCard');
@@ -2494,8 +2545,10 @@ async function renderEpis(){
 async function saveEpi(){
   const colabId = document.getElementById('epiColabSelect').value;
   if(!colabId){ alert('Selecione um colaborador.'); return; }
-  const nomeEpi = document.getElementById('epiNome').value.trim();
-  if(!nomeEpi){ alert('Informe o nome do EPI.'); return; }
+  const itemId = document.getElementById('epiItemSelect').value;
+  if(!itemId){ alert('Selecione o EPI cadastrado no Almoxarifado.'); return; }
+  const itemCache = itensEpiCache.find(x=>x.id===itemId);
+  const nomeEpi = itemCache ? itemCache.nome : '(item do Almoxarifado)';
   const ca = document.getElementById('epiCa').value.trim();
   if(ca && !validarCA()){ alert('Confira o número do C.A. — o formato não parece válido.'); return; }
   const caValidade = document.getElementById('epiCaValidade').value;
@@ -2540,7 +2593,8 @@ async function saveEpi(){
   const msgEl = document.getElementById('epiSaveMsg');
   msgEl.textContent = '';
   btn.disabled = true; btn.textContent = 'Salvando…';
-  const id = 'ep'+Date.now();
+  const id = 'ep'+Date.now(); // registro do RH (coleção epis)
+  const movId = 'mov'+Date.now(); // movimentação de estoque (coleção movimentacoes, do Almoxarifado)
 
   let fotoColabUrl = null, fotoColabPath = null;
   try{
@@ -2556,8 +2610,8 @@ async function saveEpi(){
       [c.cpf||'', id, agoraIso, ca||'', geo ? geo.lat+','+geo.lng : 'sem-geo'].join('|')
     );
 
-    await comTempoLimite(db.collection('epis').doc(id).set({
-      colaboradorId: colabId, nomeEpi, ca, caValidade, vidaUtilMeses, substituicaoPrevista, data, quantidade, statusEpi,
+    const dadosEpiRH = {
+      colaboradorId: colabId, nomeEpi, itemAlmoxarifadoId: itemId, ca, caValidade, vidaUtilMeses, substituicaoPrevista, data, quantidade, statusEpi,
       recusaAssinatura, testemunha1, testemunha2,
       termoNr6Aceito: termoAceito,
       pinConfirmado,
@@ -2566,7 +2620,38 @@ async function saveEpi(){
       hashIntegridade,
       timestampServidor: firebase.firestore.FieldValue.serverTimestamp(),
       ...auditFields(true),
-    }));
+    };
+
+    // Baixa automática no estoque do Almoxarifado só se for ENTREGA (saída de material).
+    // Devolução não mexe no estoque aqui — fica fora do escopo pedido, combinar depois se precisar.
+    if(statusEpi==='Entregue'){
+      const itemRef = db.collection('itens').doc(itemId);
+      const epiRef = db.collection('epis').doc(id);
+      const movRef = db.collection('movimentacoes').doc(movId);
+      const responsavelMovimentacao = (auth && auth.currentUser && auth.currentUser.email) || 'desconhecido';
+      await comTempoLimite(db.runTransaction(async (tx)=>{
+        const itemSnap = await tx.get(itemRef); // leitura precisa vir antes de qualquer escrita na transação
+        if(!itemSnap.exists){
+          throw { code:'almoxarifado/item-nao-encontrado', message:'Este EPI não existe mais no cadastro do Almoxarifado (pode ter sido excluído). Nada foi salvo.' };
+        }
+        const estoqueAtual = Number(itemSnap.data().estoqueAtual)||0;
+        const novoEstoque = Math.max(0, estoqueAtual - quantidade);
+        tx.set(epiRef, dadosEpiRH);
+        tx.update(itemRef, { estoqueAtual: novoEstoque });
+        tx.set(movRef, {
+          tipo: 'saida',
+          itemId: itemId,
+          quantidade: quantidade,
+          data: data,
+          responsavel: responsavelMovimentacao,
+          obra: c.obra || '',
+        });
+      }), 30);
+    } else {
+      // Devolução: só grava o registro do RH, sem mexer em estoque/movimentações
+      await comTempoLimite(db.collection('epis').doc(id).set(dadosEpiRH));
+    }
+
     if(solicitacaoEmAtendimentoId){
       await comTempoLimite(db.collection('epiSolicitacoes').doc(solicitacaoEmAtendimentoId).update({
         status: 'Atendida', epiRegistroId: id, atendidaEm: new Date().toISOString(), ...auditFields(false),
@@ -2579,13 +2664,14 @@ async function saveEpi(){
     console.error(e);
     msgEl.textContent = traduzErroDados(e);
     btn.disabled = false; btn.textContent = 'Registrar';
-    return;
+    return; // nada foi salvo — nem o registro do RH, nem a baixa de estoque (a transação garante isso)
   }
   btn.disabled = false; btn.textContent = 'Registrar';
   msgEl.textContent = 'Salvo ✓';
-  todosEpis.push({ id, colaboradorId: colabId, nomeEpi, ca, caValidade, vidaUtilMeses, substituicaoPrevista, data, quantidade, statusEpi });
+  todosEpis.push({ id, colaboradorId: colabId, nomeEpi, itemAlmoxarifadoId: itemId, ca, caValidade, vidaUtilMeses, substituicaoPrevista, data, quantidade, statusEpi });
 
-  document.getElementById('epiNome').value = '';
+  document.getElementById('epiItemSelect').value = '';
+  document.getElementById('epiItemHint').textContent = '';
   document.getElementById('epiCa').value = '';
   document.getElementById('epiCaValidade').value = '';
   document.getElementById('epiVidaUtilMeses').value = '';
@@ -2718,7 +2804,11 @@ function atenderSolicitacaoEpi(id){
   switchEpiTab(2);
   document.getElementById('epiColabSelect').value = s.colaboradorId;
   renderEpis().then(()=>{
-    document.getElementById('epiNome').value = s.nomeEpi;
+    // Tenta encontrar, no Almoxarifado, o item com o mesmo nome digitado na solicitação
+    const match = itensEpiCache.find(it=>(it.nome||'').trim().toLowerCase()===(s.nomeEpi||'').trim().toLowerCase());
+    document.getElementById('epiItemSelect').value = match ? match.id : '';
+    onEpiItemChange();
+    if(!match) alert('Não encontrei no Almoxarifado um item chamado exatamente "'+s.nomeEpi+'" — selecione manualmente o EPI correto no campo abaixo.');
     document.getElementById('epiData').value = new Date().toISOString().slice(0,10);
     document.getElementById('epiStatus').value = 'Entregue';
   });
@@ -3027,7 +3117,7 @@ let usuarios = [];
 async function loadUsuarios(){
   if(!db || currentUserRole!=='admin') return;
   try{
-    const snap = await db.collection('usuarios').get();
+    const snap = await db.collection('rh_usuarios').get();
     usuarios = snap.docs.map(d=>({ email:d.id, ...d.data() }));
   }catch(e){ console.error('usuarios', e); usuarios = []; }
 }
@@ -3099,7 +3189,7 @@ async function saveUsuario(){
   msgEl.textContent = '';
   btn.disabled = true; btn.textContent = 'Salvando…';
   try{
-    await comTempoLimite(db.collection('usuarios').doc(email).set(data, { merge: true }));
+    await comTempoLimite(db.collection('rh_usuarios').doc(email).set(data, { merge: true }));
   }catch(e){
     console.error(e);
     const detalheTecnico = ' [código: '+((e&&e.code)||'nenhum')+' | msg: '+((e&&e.message)||'nenhuma')+']';
@@ -3113,7 +3203,7 @@ async function saveUsuario(){
 }
 async function deleteUsuario(email){
   if(!confirm('Remover o acesso deste usuário ao sistema? O login dele no Firebase Authentication não é apagado — só o perfil dentro deste sistema.')) return;
-  try{ await db.collection('usuarios').doc(email).delete(); }
+  try{ await db.collection('rh_usuarios').doc(email).delete(); }
   catch(e){ console.error(e); alert(traduzErroDados(e)); return; }
   renderUsuariosTable();
 }
@@ -3153,6 +3243,8 @@ function traduzErroAuth(e){
 function traduzErroDados(e){
   const code = (e && e.code) || '';
   const mapa = {
+    'almoxarife/item-nao-encontrado': 'Este EPI não existe mais no cadastro do Almoxarifado (pode ter sido excluído). Nada foi salvo — nem o registro de entrega, nem a baixa de estoque. Atualize a lista e escolha outro item.',
+    'almoxarifado/item-nao-encontrado': 'Este EPI não existe mais no cadastro do Almoxarifado (pode ter sido excluído). Nada foi salvo — nem o registro de entrega, nem a baixa de estoque. Atualize a lista e escolha outro item.',
     'client/timeout': 'A operação demorou demais e foi cancelada — provavelmente sem conexão com o Firebase, ou as Regras do Firestore estão bloqueando silenciosamente. Confira sua internet e se as Regras foram publicadas no projeto certo (BENG ou SAVA).',
     'permission-denied': 'Sem permissão para salvar. As Regras do Firestore (ou do Storage) ainda não foram publicadas, ou não permitem gravação para usuários logados. Confira em Firestore Database → Regras (e Storage → Regras) — e confira se está editando o projeto certo (BENG ou SAVA).',
     'unavailable': 'Sem conexão com o Firebase agora. Verifique sua internet e tente novamente.',
